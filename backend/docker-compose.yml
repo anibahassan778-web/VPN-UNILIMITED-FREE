@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  wireshield-backend:
+    build: .
+    container_name: wireshield_api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - ADMIN_API_KEY=wireshield_admin_secret_token_change_in_prod
+      - NODE_ENV=production
+    volumes:
+      - ./data:/app/data

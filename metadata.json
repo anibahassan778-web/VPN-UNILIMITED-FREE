@@ -1,0 +1,6 @@
+{
+  "name": "WireShield VPN",
+  "description": "Open-source WireGuard VPN with Kill Switch, DNS leak protection, and custom server management",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
