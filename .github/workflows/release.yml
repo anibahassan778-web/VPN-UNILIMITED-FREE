@@ -1,0 +1,137 @@
+name: Release & Publish Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag Name (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-release-apk:
+    name: Build APK & Publish to GitHub Releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant execute permission for gradlew
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
+
+      - name: Run Unit & Robolectric Tests
+        run: gradle :app:testDebugUnitTest --no-daemon
+
+      - name: Build Debug APK
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Stage APKs
+        run: |
+          mkdir -p apks
+          cp app/build/outputs/apk/debug/app-debug.apk apks/WireShield-VPN-v1.0-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk apks/app-debug.apk
+          ls -lh apks/
+
+      - name: Determine Release Tag
+        id: release_tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          elif [[ -n "${{ github.event.inputs.tag_name }}" ]]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          else
+            TAG="v1.0.0"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Publish to GitHub Releases (Visible on Repo Page)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          name: "WireShield VPN ${{ steps.release_tag.outputs.tag }}"
+          files: |
+            apks/WireShield-VPN-v1.0-debug.apk
+            apks/app-debug.apk
+            apks/README.md
+          body: |
+            # WireShield VPN Release ${{ steps.release_tag.outputs.tag }}
+
+            Official open-source, privacy-first WireGuard® VPN client for Android.
+
+            ### 📦 Download Links
+            * **[WireShield-VPN-v1.0-debug.apk](https://github.com/${{ github.repository }}/releases/download/${{ steps.release_tag.outputs.tag }}/WireShield-VPN-v1.0-debug.apk)** (~23.3 MB)
+            * **[app-debug.apk](https://github.com/${{ github.repository }}/releases/download/${{ steps.release_tag.outputs.tag }}/app-debug.apk)** (~23.3 MB)
+
+            ### 🛡️ Features Included:
+            * **WireGuard® Protocol**: Ultra-fast, low battery consumption with Curve25519 (RFC 7748) local cryptography.
+            * **Network Monitoring Service**: Real-time watchdog monitoring packet liveness and connection drops.
+            * **Emergency Kill Switch Lockdown**: Automatically severs and blackholes device internet traffic on drop.
+            * **DNS & IPv6 Leak Protection**: Intercepts unencrypted ISP routing.
+            * **Server Manager**: Add, ping, and manage custom and self-hosted VPN nodes.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-github-package:
+    name: Publish to GitHub Packages Registry
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry (ghcr.io)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/wireshield-backend
+          tags: |
+            type=raw,value=latest
+            type=ref,event=branch
+            type=ref,event=tag
+
+      - name: Build and Push Backend Package to GitHub Packages
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

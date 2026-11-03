@@ -118,13 +118,19 @@ wireshield-vpn/
 
 ---
 
-## ⚙️ بناء التطبيق تلقائيًا عبر GitHub Actions (CI/CD)
+## ⚙️ النشر التلقائي في GitHub (Releases & Packages)
 
-يحتوي المشروع على تكوين جاهز ومختبر لـ **GitHub Actions** في المسار `.github/workflows/build.yml` (وكذلك `.github/workflows/android.yml`):
-* يتم تشغيله تلقائيًا عند أي `push` أو `pull_request` على فرعي `main` / `master` أو تشغيله يدويًا عبر `workflow_dispatch`.
-* يقوم بإعداد بيئة Java 17 (Temurin)، وتخزين كاش Gradle لتسريع البناء.
-* يُجري جميع اختبارات الوحدة واختبارات Robolectric للتأكد من سلامة التشفير ومراقبة الشبكة.
-* يبني حزمة `assembleDebug` ويقوم برفع ملف `WireShield-VPN-Debug-APK` كـ Artifact قابل للتنزيل والتثبيت مباشرة.
+يحتوي المشروع على تكوين متكامل ومختبر لـ **GitHub Actions** عبر ملفات `.github/workflows/build.yml` و `.github/workflows/release.yml`:
+* **Releases (في الشريط الجانبي الأيمن لصفحة GitHub)**:
+  * يقوم الـ Workflow ببناء الـ APK وتشغيل الاختبارات، ثم إنشاء إصدار Release تلقائي (مثل `v1.0.0`) وإرفاق ملفات `WireShield-VPN-v1.0-debug.apk` و `app-debug.apk` كأصول تنزيل مباشرة.
+  * يظهر الإصدار في قسم **Releases** على الصفحة الرئيسية لمستودعك على GitHub مع رابط تنزيل مباشر بنقرة واحدة.
+* **Packages (في قسم Packages على GitHub)**:
+  * يقوم سير العمل ببناء ونشر صورة الحاوية في **GitHub Packages / GitHub Container Registry (`ghcr.io`)** بحيث تظهر في قسم **Packages** في الشريط الجانبي لمستودع GitHub.
+* **مجلد `apks/` داخل المستودع**:
+  * يتوفر الـ APK المُجمّع مسبقاً داخل مجلد `apks/` في المستودع ومتاح للتنزيل المباشر أو التثبيت عبر ADB:
+  ```bash
+  adb install -r apks/WireShield-VPN-debug.apk
+  ```
 
 ---
 

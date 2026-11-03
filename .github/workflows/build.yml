@@ -18,6 +18,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build:
     name: Build & Test APK
@@ -57,18 +61,43 @@ jobs:
         run: |
           gradle :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK Generated
+      - name: Copy APK to apks Folder
         run: |
-          echo "Listing generated APK artifacts:"
-          ls -la app/build/outputs/apk/debug/
+          mkdir -p apks
+          cp app/build/outputs/apk/debug/app-debug.apk apks/WireShield-VPN-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk apks/app-debug.apk
+          echo "Listing generated APKs in apks/:"
+          ls -lh apks/
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WireShield-VPN-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: WireShield-VPN-APKs
+          path: apks/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish to GitHub Releases (Visible on Repo Page)
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v1.0.0"
+          name: "WireShield VPN v1.0.0"
+          files: |
+            apks/WireShield-VPN-debug.apk
+            apks/app-debug.apk
+            apks/README.md
+          body: |
+            # WireShield VPN v1.0.0 (Prebuilt Release)
+
+            Prebuilt installable APK package with WireGuard® encryption, Network Drop Watchdog, and Kill Switch.
+
+            ### 📦 Download:
+            * **[WireShield-VPN-debug.apk](https://github.com/${{ github.repository }}/releases/download/v1.0.0/WireShield-VPN-debug.apk)** (~23.3 MB)
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Test Reports (on failure)
         if: failure()
