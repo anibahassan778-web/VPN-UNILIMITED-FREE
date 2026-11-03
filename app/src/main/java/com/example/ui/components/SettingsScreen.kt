@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,6 +71,7 @@ fun SettingsScreen(
     clientKeyPair: WireGuardKeyPair,
     onSettingsChanged: ((VpnSettings) -> VpnSettings) -> Unit,
     onRegenerateKeys: () -> Unit,
+    onPanicPurge: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -78,6 +80,8 @@ fun SettingsScreen(
     var isSyncing by remember { mutableStateOf(false) }
     var backendUrlInput by remember { mutableStateOf(settings.backendApiUrl) }
     var customDnsInput by remember { mutableStateOf(settings.customDns) }
+    var showSplitTunnelDialog by remember { mutableStateOf(false) }
+    var showPanicConfirmDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -136,13 +140,77 @@ fun SettingsScreen(
                     // DNS Leak Protection
                     SettingToggleRow(
                         title = "DNS Leak Protection",
-                        description = "Enforces private encrypted DNS routing (Cloudflare/Quad9) to prevent ISP DNS eavesdropping.",
+                        description = "Enforces private encrypted DNS routing to prevent ISP DNS eavesdropping.",
                         checked = settings.dnsLeakProtection,
                         testTag = "switch_dns_leak",
                         onCheckedChange = { checked ->
                             onSettingsChanged { it.copy(dnsLeakProtection = checked) }
                         }
                     )
+
+                    // DNS Shield Mode Picker
+                    Text(
+                        text = "DNS Shield Protection Profile",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        com.example.model.DnsShieldMode.values().forEach { mode ->
+                            val isSelected = settings.dnsShieldMode == mode
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.surface
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onSettingsChanged { it.copy(dnsShieldMode = mode) }
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    androidx.compose.material3.RadioButton(
+                                        selected = isSelected,
+                                        onClick = { onSettingsChanged { it.copy(dnsShieldMode = mode) } }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = mode.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = mode.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (settings.dnsShieldMode == com.example.model.DnsShieldMode.CUSTOM) {
+                        OutlinedTextField(
+                            value = customDnsInput,
+                            onValueChange = {
+                                customDnsInput = it
+                                onSettingsChanged { s -> s.copy(customDns = it.trim()) }
+                            },
+                            label = { Text("Custom DNS IP") },
+                            placeholder = { Text("e.g. 1.1.1.1, 9.9.9.9 or 94.140.14.14") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("input_custom_dns"),
+                            singleLine = true
+                        )
+                    }
 
                     // IPv6 Leak Protection
                     SettingToggleRow(
@@ -153,21 +221,6 @@ fun SettingsScreen(
                         onCheckedChange = { checked ->
                             onSettingsChanged { it.copy(ipv6LeakProtection = checked) }
                         }
-                    )
-
-                    // Custom DNS Field
-                    OutlinedTextField(
-                        value = customDnsInput,
-                        onValueChange = {
-                            customDnsInput = it
-                            onSettingsChanged { s -> s.copy(customDns = it.trim()) }
-                        },
-                        label = { Text("Custom DNS (Optional)") },
-                        placeholder = { Text("e.g. 1.1.1.1, 9.9.9.9 or 94.140.14.14") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_custom_dns"),
-                        singleLine = true
                     )
                 }
             }
@@ -225,6 +278,70 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // Advanced Routing & Split Tunneling
+            SectionHeader(title = "Advanced Routing & Split Tunneling", icon = Icons.Default.NetworkCheck)
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // Split Tunneling toggle
+                    SettingToggleRow(
+                        title = "Split Tunneling",
+                        description = "Permits selected apps (e.g. banking, food delivery) to access the internet directly without routing through VPN.",
+                        checked = settings.splitTunnelEnabled,
+                        testTag = "switch_split_tunnel",
+                        onCheckedChange = { checked ->
+                            onSettingsChanged { it.copy(splitTunnelEnabled = checked) }
+                        }
+                    )
+
+                    if (settings.splitTunnelEnabled) {
+                        Button(
+                            onClick = { showSplitTunnelDialog = true },
+                            modifier = Modifier.fillMaxWidth().testTag("btn_select_split_apps")
+                        ) {
+                            Text("Select Bypass Apps (${settings.splitTunnelExcludedPackages.size} selected)")
+                        }
+                    }
+
+                    // Obfuscation / Stealth Mode
+                    SettingToggleRow(
+                        title = "Stealth Mode (Anti-DPI Obfuscation)",
+                        description = "Masks WireGuard handshake packet headers with random padding to bypass Deep Packet Inspection (DPI) censorship firewalls.",
+                        checked = settings.obfuscationEnabled,
+                        testTag = "switch_obfuscation",
+                        onCheckedChange = { checked ->
+                            onSettingsChanged { it.copy(obfuscationEnabled = checked) }
+                        }
+                    )
+
+                    // Bypass Local Network (LAN)
+                    SettingToggleRow(
+                        title = "Bypass Local Network (LAN)",
+                        description = "Maintains local network visibility for printers, Chromecast, smart home devices, and local file shares.",
+                        checked = settings.bypassLocalNetwork,
+                        testTag = "switch_bypass_lan",
+                        onCheckedChange = { checked ->
+                            onSettingsChanged { it.copy(bypassLocalNetwork = checked) }
+                        }
+                    )
+
+                    // Multi-Hop Double VPN
+                    SettingToggleRow(
+                        title = "Multi-Hop Double VPN",
+                        description = "Chains connection through two separate privacy nodes in series for double encryption defense.",
+                        checked = settings.multiHopEnabled,
+                        testTag = "switch_multi_hop",
+                        onCheckedChange = { checked ->
+                            onSettingsChanged { it.copy(multiHopEnabled = checked) }
+                        }
+                    )
                 }
             }
 
@@ -375,8 +492,72 @@ fun SettingsScreen(
                 }
             }
 
+            // Emergency Panic Wipe
+            SectionHeader(title = "Emergency Panic Purge", icon = Icons.Default.Lock)
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Panic Lockdown & Purge",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = "Instantly disconnects tunnel, removes all saved servers, regenerates keys, wipes traffic history, and restores default factory state.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Button(
+                        onClick = { showPanicConfirmDialog = true },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth().testTag("btn_panic_wipe")
+                    ) {
+                        Text("Purge All Data & Reset Keys", color = androidx.compose.ui.graphics.Color.White)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showSplitTunnelDialog) {
+        SplitTunnelDialog(
+            selectedPackages = settings.splitTunnelExcludedPackages,
+            onSave = { updated ->
+                onSettingsChanged { it.copy(splitTunnelExcludedPackages = updated) }
+            },
+            onDismiss = { showSplitTunnelDialog = false }
+        )
+    }
+
+    if (showPanicConfirmDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPanicConfirmDialog = false },
+            title = { Text("Confirm Panic Purge", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure? This will permanently erase all custom servers, purge cached network configurations, and reset WireGuard cryptographic keys.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPanicConfirmDialog = false
+                        onPanicPurge()
+                        Toast.makeText(context, "All VPN configurations successfully purged", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Purge Everything", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPanicConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

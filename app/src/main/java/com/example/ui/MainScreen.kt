@@ -87,6 +87,12 @@ import com.example.ui.components.ServerSelectionSheet
 import com.example.ui.theme.AmberConnecting
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldConnected
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Speed
+import com.example.model.LeakTestResult
+import com.example.model.SpeedTestResult
+import com.example.model.VpnProfileMode
 import com.example.ui.theme.RedDisconnected
 import com.example.vpn.VpnManager
 import kotlinx.coroutines.launch
@@ -101,11 +107,17 @@ fun MainScreen(
     allServers: List<VpnServer>,
     logs: List<String>,
     monitorState: NetworkMonitorState = NetworkMonitorState(),
+    speedTestResult: SpeedTestResult = SpeedTestResult(),
+    leakTestResult: LeakTestResult = LeakTestResult(),
     onToggleConnect: () -> Unit,
     onUnblockTraffic: () -> Unit = {},
     onSelectServer: (VpnServer) -> Unit,
     onAddCustomServer: (VpnServer) -> Unit,
     onDeleteCustomServer: (String) -> Unit,
+    onSelectProfile: (VpnProfileMode) -> Unit = {},
+    onRunSpeedTest: () -> Unit = {},
+    onRunLeakTest: () -> Unit = {},
+    onPanicPurge: () -> Unit = {},
     onOpenSettings: () -> Unit
 ) {
     val context = LocalContext.current
@@ -115,6 +127,7 @@ fun MainScreen(
 
     var showServerSheet by remember { mutableStateOf(false) }
     var showLogsDialog by remember { mutableStateOf(false) }
+    var showPanicConfirmDialog by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
@@ -242,6 +255,12 @@ fun MainScreen(
                 }
             )
 
+            // Profile Mode Selector Row
+            VpnProfileSelectorRow(
+                selectedProfile = settings.profileMode,
+                onSelectProfile = onSelectProfile
+            )
+
             // Current Server Selection Card
             CurrentServerCard(
                 server = currentServer,
@@ -260,6 +279,20 @@ fun MainScreen(
                 settings = settings,
                 vpnState = vpnState,
                 monitorState = monitorState
+            )
+
+            // Diagnostics & Speed / Leak Testing Card
+            DiagnosticsTestingCard(
+                speedTestResult = speedTestResult,
+                leakTestResult = leakTestResult,
+                isConnected = vpnState == VpnState.CONNECTED,
+                onRunSpeedTest = onRunSpeedTest,
+                onRunLeakTest = onRunLeakTest
+            )
+
+            // Emergency Panic Wipe Button
+            PanicPurgeCard(
+                onClick = { showPanicConfirmDialog = true }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -292,6 +325,30 @@ fun MainScreen(
         LogsDialog(
             logs = logs,
             onDismiss = { showLogsDialog = false }
+        )
+    }
+
+    if (showPanicConfirmDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPanicConfirmDialog = false },
+            title = { Text("Emergency Panic Purge", fontWeight = FontWeight.Bold) },
+            text = { Text("Instantly terminates VPN tunnel, deletes all custom servers, purges WireGuard cryptographic keys, and resets application configuration to factory defaults.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showPanicConfirmDialog = false
+                        onPanicPurge()
+                        Toast.makeText(context, "All VPN configurations purged", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Purge All Data", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showPanicConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }
@@ -856,6 +913,235 @@ fun SecurityIndicatorBadge(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+@Composable
+fun VpnProfileSelectorRow(
+    selectedProfile: VpnProfileMode,
+    onSelectProfile: (VpnProfileMode) -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().testTag("card_vpn_profiles")
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Specialized Profiles",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = selectedProfile.title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                VpnProfileMode.values().forEach { profile ->
+                    val isSelected = profile == selectedProfile
+                    val chipBg = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                    val borderModifier = if (isSelected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(chipBg)
+                            .then(borderModifier)
+                            .clickable { onSelectProfile(profile) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .testTag("profile_chip_${profile.name.lowercase()}")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = profile.iconEmoji, fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = profile.title.split(" ").first(),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DiagnosticsTestingCard(
+    speedTestResult: SpeedTestResult,
+    leakTestResult: LeakTestResult,
+    isConnected: Boolean,
+    onRunSpeedTest: () -> Unit,
+    onRunLeakTest: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().testTag("card_diagnostics")
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Speed,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Diagnostics & Leak Testing",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (leakTestResult.detectedDns != null) {
+                    val isSafe = leakTestResult.isProtected
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSafe) EmeraldConnected.copy(alpha = 0.2f) else MaterialTheme.colorScheme.error.copy(alpha = 0.2f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (isSafe) "LEAK FREE" else "POTENTIAL LEAK",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSafe) EmeraldConnected else MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            // Speed test results summary
+            if (speedTestResult.pingMs > 0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Latency", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${speedTestResult.pingMs} ms", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Jitter", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${speedTestResult.jitterMs} ms", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Speed Down", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(speedTestResult.formattedDownload, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = EmeraldConnected)
+                    }
+                }
+            }
+
+            if (leakTestResult.detectedDns != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = "DNS Resolver: ${leakTestResult.detectedDns}",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onRunSpeedTest,
+                    enabled = !speedTestResult.isTesting,
+                    modifier = Modifier.weight(1f).testTag("btn_run_speed_test")
+                ) {
+                    Text(if (speedTestResult.isTesting) "Testing..." else "Speed Test")
+                }
+
+                OutlinedButton(
+                    onClick = onRunLeakTest,
+                    enabled = !leakTestResult.isTesting,
+                    modifier = Modifier.weight(1f).testTag("btn_run_leak_test")
+                ) {
+                    Text(if (leakTestResult.isTesting) "Verifying..." else "Leak Check")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PanicPurgeCard(
+    onClick: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .testTag("card_panic_purge")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "🚨", fontSize = 20.sp)
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Panic Lockdown & Purge",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = "Instantly wipe cryptographic keys and sever connections",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Text(
+                text = "Purge ›",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error
             )
         }
     }

@@ -18,6 +18,45 @@ enum class ThemeMode {
     LIGHT
 }
 
+enum class VpnProfileMode(val title: String, val subtitle: String, val iconEmoji: String) {
+    BALANCED("Balanced Shield", "Optimized WireGuard for daily browsing & privacy", "🛡️"),
+    STEALTH("Stealth Mode", "Anti-DPI packet obfuscation for restricted networks", "🕵️"),
+    GAMING("Ultra Gaming", "Minimized ping buffer, jitter dampening & lowest latency", "🎮"),
+    STREAMING("Media Streaming", "Maximum MTU throughput for 4K video playback", "🎬"),
+    TORRENT_P2P("P2P High-Speed", "High concurrent sockets with port forwarding simulation", "⚡"),
+    BATTERY_SAVER("Battery Saver", "Smart idle sleep & reduced persistent keepalive", "🔋")
+}
+
+enum class DnsShieldMode(val title: String, val primaryDns: String, val secondaryDns: String, val description: String) {
+    ADBLOCK("Ad & Tracker Shield", "94.140.14.14", "94.140.15.15", "Blocks intrusive ads, mobile analytics & tracking scripts"),
+    MALWARE("Malware Protection", "9.9.9.9", "149.112.112.112", "Blocks phishing, ransomware, botnets & malicious domains"),
+    FAMILY_SAFE("Family Protection", "185.228.168.168", "185.228.169.168", "Blocks adult content & enforces Google/Bing SafeSearch"),
+    CLOUDFLARE_FAST("Ultra Fast (1.1.1.1)", "1.1.1.1", "1.0.0.1", "Fastest worldwide response times with zero DNS logging"),
+    CUSTOM("Custom DNS", "", "", "User-specified custom upstream DNS resolver")
+}
+
+data class SpeedTestResult(
+    val isTesting: Boolean = false,
+    val pingMs: Int = -1,
+    val jitterMs: Int = -1,
+    val downloadSpeedBps: Long = 0,
+    val uploadSpeedBps: Long = 0,
+    val packetLossPercent: Int = 0,
+    val testTimestamp: Long = 0L
+) {
+    val formattedDownload: String get() = VpnStats.formatSpeed(downloadSpeedBps)
+    val formattedUpload: String get() = VpnStats.formatSpeed(uploadSpeedBps)
+}
+
+data class LeakTestResult(
+    val isTesting: Boolean = false,
+    val detectedDns: String? = null,
+    val detectedIp: String? = null,
+    val isDnsLeaking: Boolean = false,
+    val isWebRtcLeaking: Boolean = false,
+    val isProtected: Boolean = true
+)
+
 data class NetworkMonitorState(
     val isMonitoring: Boolean = false,
     val isDropDetected: Boolean = false,
@@ -44,7 +83,8 @@ data class VpnServer(
     val pingMs: Int = -1,
     val loadPercent: Int = 20,
     val isCustom: Boolean = false,
-    val isOnline: Boolean = true
+    val isOnline: Boolean = true,
+    val isMultiHopEligible: Boolean = true
 ) {
     val flagEmoji: String
         get() {
@@ -64,7 +104,8 @@ data class VpnStats(
     val rxBytes: Long = 0,
     val txSpeedBps: Long = 0,
     val rxSpeedBps: Long = 0,
-    val currentPublicIp: String? = null
+    val currentPublicIp: String? = null,
+    val adsBlockedCount: Long = 0
 ) {
     val formattedDuration: String
         get() {
@@ -117,7 +158,16 @@ data class VpnSettings(
     val mtu: Int = 1420,
     val themeMode: ThemeMode = ThemeMode.DARK,
     val backendApiUrl: String = "http://10.0.2.2:3000",
-    val selectedServerId: String = "srv-de-fra"
+    val selectedServerId: String = "srv-de-fra",
+    // V2 Advanced Features
+    val profileMode: VpnProfileMode = VpnProfileMode.BALANCED,
+    val dnsShieldMode: DnsShieldMode = DnsShieldMode.ADBLOCK,
+    val obfuscationEnabled: Boolean = false,
+    val bypassLocalNetwork: Boolean = true,
+    val multiHopEnabled: Boolean = false,
+    val multiHopExitServerId: String = "srv-nl-ams",
+    val splitTunnelEnabled: Boolean = false,
+    val splitTunnelExcludedPackages: Set<String> = emptySet()
 )
 
 data class WireGuardKeyPair(

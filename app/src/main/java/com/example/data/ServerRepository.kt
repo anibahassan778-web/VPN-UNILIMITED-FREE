@@ -198,6 +198,11 @@ class ServerRepository(context: Context) {
         _servers.value = defaultServers + currentCustoms
     }
 
+    fun resetToDefaults() {
+        prefs.edit().remove(KEY_CUSTOM_SERVERS).apply()
+        _servers.value = defaultServers
+    }
+
     suspend fun pingServer(server: VpnServer): Int = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
         try {

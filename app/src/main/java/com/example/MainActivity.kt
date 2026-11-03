@@ -49,6 +49,8 @@ class MainActivity : ComponentActivity() {
             val stats by VpnManager.stats.collectAsState()
             val logs by VpnManager.logs.collectAsState()
             val monitorState by VpnManager.monitorState.collectAsState()
+            val speedTestResult by VpnManager.speedTestResult.collectAsState()
+            val leakTestResult by VpnManager.leakTestResult.collectAsState()
 
             var currentScreen by remember { mutableStateOf(AppScreen.MAIN) }
             val clientKeyPair = remember(settings) { settingsRepo.getOrCreateClientKeyPair() }
@@ -85,11 +87,19 @@ class MainActivity : ComponentActivity() {
                             allServers = servers,
                             logs = logs,
                             monitorState = monitorState,
+                            speedTestResult = speedTestResult,
+                            leakTestResult = leakTestResult,
                             onToggleConnect = { VpnManager.toggleConnection(this@MainActivity) },
                             onUnblockTraffic = { VpnManager.unblockTraffic(this@MainActivity) },
                             onSelectServer = { server -> VpnManager.selectServer(server, this@MainActivity) },
                             onAddCustomServer = { newServer -> serverRepo.addCustomServer(newServer) },
                             onDeleteCustomServer = { id -> serverRepo.removeCustomServer(id) },
+                            onSelectProfile = { profile ->
+                                settingsRepo.updateSettings { it.copy(profileMode = profile) }
+                            },
+                            onRunSpeedTest = { VpnManager.runSpeedTest() },
+                            onRunLeakTest = { VpnManager.runLeakTest(this@MainActivity) },
+                            onPanicPurge = { VpnManager.purgeAllData(this@MainActivity) },
                             onOpenSettings = { currentScreen = AppScreen.SETTINGS }
                         )
                     }
@@ -102,6 +112,7 @@ class MainActivity : ComponentActivity() {
                             clientKeyPair = clientKeyPair,
                             onSettingsChanged = { update -> settingsRepo.updateSettings(update) },
                             onRegenerateKeys = { settingsRepo.regenerateClientKeyPair() },
+                            onPanicPurge = { VpnManager.purgeAllData(this@MainActivity) },
                             onBack = { currentScreen = AppScreen.MAIN }
                         )
                     }

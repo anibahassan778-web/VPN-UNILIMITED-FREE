@@ -119,14 +119,20 @@ class WireShieldVpnService : VpnService() {
         try {
             val builder = Builder()
             builder.setSession("WireShield: ${server.name}")
-            builder.setMtu(activeSettings.mtu.coerceIn(1280, 1500))
+            val effectiveMtu = when (activeSettings.profileMode) {
+                com.example.model.VpnProfileMode.GAMING -> 1360
+                com.example.model.VpnProfileMode.STREAMING -> 1420
+                com.example.model.VpnProfileMode.STEALTH -> 1280
+                else -> activeSettings.mtu.coerceIn(1280, 1500)
+            }
+            builder.setMtu(effectiveMtu)
 
             // Parse and configure assigned Client Address (e.g. 10.66.66.2/32)
             val clientIpParts = server.clientIp.split("/")
             val clientIp = clientIpParts.getOrElse(0) { "10.66.66.2" }
             val clientPrefix = clientIpParts.getOrNull(1)?.toIntOrNull() ?: 32
             builder.addAddress(InetAddress.getByName(clientIp), clientPrefix)
-            VpnManager.log("Interface Address assigned: $clientIp/$clientPrefix")
+            VpnManager.log("Interface Address assigned: $clientIp/$clientPrefix (MTU: $effectiveMtu)")
 
             // Route all IPv4 internet traffic through the tunnel
             builder.addRoute("0.0.0.0", 0)
@@ -142,21 +148,36 @@ class WireShieldVpnService : VpnService() {
                 }
             }
 
-            // Configure Secure DNS with DNS Leak Protection
-            val dnsServers = if (activeSettings.customDns.isNotBlank()) {
-                activeSettings.customDns.split(",").map { it.trim() }
-            } else {
-                server.dnsServers.split(",").map { it.trim() }
+            // Configure Secure DNS according to selected DNS Shield Mode
+            val dnsServers = when (activeSettings.dnsShieldMode) {
+                com.example.model.DnsShieldMode.ADBLOCK -> listOf("94.140.14.14", "94.140.15.15")
+                com.example.model.DnsShieldMode.MALWARE -> listOf("9.9.9.9", "149.112.112.112")
+                com.example.model.DnsShieldMode.FAMILY_SAFE -> listOf("185.228.168.168", "185.228.169.168")
+                com.example.model.DnsShieldMode.CLOUDFLARE_FAST -> listOf("1.1.1.1", "1.0.0.1")
+                com.example.model.DnsShieldMode.CUSTOM -> {
+                    if (activeSettings.customDns.isNotBlank()) activeSettings.customDns.split(",").map { it.trim() }
+                    else server.dnsServers.split(",").map { it.trim() }
+                }
             }
 
             for (dns in dnsServers) {
                 if (dns.isNotBlank()) {
                     try {
                         builder.addDnsServer(InetAddress.getByName(dns))
-                        VpnManager.log("DNS Server added: $dns")
+                        VpnManager.log("DNS Shield (${activeSettings.dnsShieldMode.title}) active: $dns")
                     } catch (e: Exception) {
                         VpnManager.log("Invalid DNS server $dns: ${e.message}")
                     }
+                }
+            }
+
+            // Split Tunneling: Disallow selected applications from VPN tunnel
+            if (activeSettings.splitTunnelEnabled && activeSettings.splitTunnelExcludedPackages.isNotEmpty()) {
+                for (pkg in activeSettings.splitTunnelExcludedPackages) {
+                    try {
+                        builder.addDisallowedApplication(pkg)
+                        VpnManager.log("Split Tunnel: Excluded $pkg from VPN")
+                    } catch (_: Exception) {}
                 }
             }
 
