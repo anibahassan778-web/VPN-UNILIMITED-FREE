@@ -14,64 +14,21 @@ const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'wireshield_admin_secret_token_change_in_prod';
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
+
+if (!ADMIN_API_KEY && process.env.NODE_ENV === 'production') {
+  console.error('[FATAL] ADMIN_API_KEY environment variable must be set in production.');
+  process.exit(1);
+}
 
 // Security Middlewares
 app.use(cors());
 app.use(express.json());
 
 // In-Memory Database store with optional SQLite persistence
+// Servers catalog is initialized empty: only user/admin verified nodes are added via .conf or admin API.
 const db = {
-  servers: [
-    {
-      id: 'srv-de-fra',
-      name: 'Frankfurt Edge 01',
-      country: 'Germany',
-      countryCode: 'DE',
-      city: 'Frankfurt',
-      endpointHost: 'de-fra.wireshield-relay.net',
-      endpointPort: 51820,
-      publicKey: '0a5dY+T0w6O3kU2sW1V5a8b7C9d0E2f4G6h8I0j2K4M=',
-      dnsServers: '1.1.1.1, 1.0.0.1',
-      subnetCidr: '10.66.66.0/24',
-      loadPercent: 32,
-      pingMs: 24,
-      isActive: true,
-      currentIpCounter: 3
-    },
-    {
-      id: 'srv-nl-ams',
-      name: 'Amsterdam Fast Relay',
-      country: 'Netherlands',
-      countryCode: 'NL',
-      city: 'Amsterdam',
-      endpointHost: 'nl-ams.wireshield-relay.net',
-      endpointPort: 51820,
-      publicKey: '8b9cE0f2A4c6E8g0I2k4M6o8Q0s2U4w6Y8a0C2e4G6I=',
-      dnsServers: '9.9.9.9, 149.112.112.112',
-      subnetCidr: '10.66.67.0/24',
-      loadPercent: 45,
-      pingMs: 31,
-      isActive: true,
-      currentIpCounter: 4
-    },
-    {
-      id: 'srv-ch-zur',
-      name: 'Zurich Privacy Vault',
-      country: 'Switzerland',
-      countryCode: 'CH',
-      city: 'Zurich',
-      endpointHost: 'ch-zur.wireshield-relay.net',
-      endpointPort: 51820,
-      publicKey: '5f7aB9d1F3h5J7l9N1p3R5t7V9x1Z3b5D7f9H1j3L5N=',
-      dnsServers: '1.1.1.1, 9.9.9.9',
-      subnetCidr: '10.66.68.0/24',
-      loadPercent: 18,
-      pingMs: 38,
-      isActive: true,
-      currentIpCounter: 2
-    }
-  ],
+  servers: [],
   peers: new Map() // clientPublicKey -> { serverId, allocatedIp, createdAt }
 };
 

@@ -78,10 +78,11 @@ data class VpnServer(
     val endpointPort: Int,
     val publicKey: String,
     val presharedKey: String? = null,
+    val clientPrivateKey: String? = null,
     val clientIp: String = "10.66.66.2/32",
     val dnsServers: String = "1.1.1.1, 1.0.0.1",
     val pingMs: Int = -1,
-    val loadPercent: Int = 20,
+    val loadPercent: Int = 0,
     val isCustom: Boolean = false,
     val isOnline: Boolean = true,
     val isMultiHopEligible: Boolean = true
@@ -158,14 +159,14 @@ data class VpnSettings(
     val mtu: Int = 1420,
     val themeMode: ThemeMode = ThemeMode.DARK,
     val backendApiUrl: String = "http://10.0.2.2:3000",
-    val selectedServerId: String = "srv-de-fra",
+    val selectedServerId: String = "",
     // V2 Advanced Features
     val profileMode: VpnProfileMode = VpnProfileMode.BALANCED,
     val dnsShieldMode: DnsShieldMode = DnsShieldMode.ADBLOCK,
     val obfuscationEnabled: Boolean = false,
     val bypassLocalNetwork: Boolean = true,
     val multiHopEnabled: Boolean = false,
-    val multiHopExitServerId: String = "srv-nl-ams",
+    val multiHopExitServerId: String = "",
     val splitTunnelEnabled: Boolean = false,
     val splitTunnelExcludedPackages: Set<String> = emptySet()
 )
@@ -209,12 +210,12 @@ data class WireGuardConfig(
         fun parse(raw: String): WireGuardConfig? {
             try {
                 var privateKey = ""
-                var address = "10.66.66.2/32"
-                var dns = "1.1.1.1, 1.0.0.1"
+                val addresses = mutableListOf<String>()
+                val dnsList = mutableListOf<String>()
                 var mtu = 1420
                 var peerPublicKey = ""
                 var peerEndpoint = ""
-                var peerAllowedIps = "0.0.0.0/0, ::/0"
+                val allowedIpsList = mutableListOf<String>()
                 var presharedKey: String? = null
                 var keepalive = 25
 
@@ -222,52 +223,73 @@ data class WireGuardConfig(
                 var inInterface = false
                 var inPeer = false
 
-                for (line in lines) {
-                    val trimmed = line.trim()
-                    if (trimmed.startsWith("#") || trimmed.isEmpty()) continue
-                    if (trimmed.equals("[Interface]", ignoreCase = true)) {
+                for (rawLine in lines) {
+                    // Strip comments starting with # or ;
+                    val line = rawLine.substringBefore('#').substringBefore(';').trim()
+                    if (line.isEmpty()) continue
+
+                    if (line.equals("[Interface]", ignoreCase = true)) {
                         inInterface = true
                         inPeer = false
                         continue
                     }
-                    if (trimmed.equals("[Peer]", ignoreCase = true)) {
+                    if (line.equals("[Peer]", ignoreCase = true)) {
                         inInterface = false
                         inPeer = true
                         continue
                     }
 
-                    val parts = trimmed.split("=", limit = 2)
+                    val parts = line.split("=", limit = 2)
                     if (parts.size != 2) continue
-                    val key = parts[0].trim()
+                    val key = parts[0].trim().lowercase(Locale.ROOT)
                     val value = parts[1].trim()
 
                     if (inInterface) {
-                        when (key.lowercase(Locale.ROOT)) {
+                        when (key) {
                             "privatekey" -> privateKey = value
-                            "address" -> address = value
-                            "dns" -> dns = value
+                            "address" -> {
+                                value.split(",").forEach { addr ->
+                                    val cleaned = addr.trim()
+                                    if (cleaned.isNotBlank()) addresses.add(cleaned)
+                                }
+                            }
+                            "dns" -> {
+                                value.split(",").forEach { dns ->
+                                    val cleaned = dns.trim()
+                                    if (cleaned.isNotBlank()) dnsList.add(cleaned)
+                                }
+                            }
                             "mtu" -> mtu = value.toIntOrNull() ?: 1420
                         }
                     } else if (inPeer) {
-                        when (key.lowercase(Locale.ROOT)) {
+                        when (key) {
                             "publickey" -> peerPublicKey = value
                             "presharedkey" -> presharedKey = value
                             "endpoint" -> peerEndpoint = value
-                            "allowedips" -> peerAllowedIps = value
+                            "allowedips" -> {
+                                value.split(",").forEach { ip ->
+                                    val cleaned = ip.trim()
+                                    if (cleaned.isNotBlank()) allowedIpsList.add(cleaned)
+                                }
+                            }
                             "persistentkeepalive" -> keepalive = value.toIntOrNull() ?: 25
                         }
                     }
                 }
 
                 if (peerPublicKey.isNotBlank() && peerEndpoint.isNotBlank()) {
+                    val finalAddress = if (addresses.isNotEmpty()) addresses.joinToString(", ") else "10.66.66.2/32"
+                    val finalDns = if (dnsList.isNotEmpty()) dnsList.joinToString(", ") else "1.1.1.1, 1.0.0.1"
+                    val finalAllowedIps = if (allowedIpsList.isNotEmpty()) allowedIpsList.joinToString(", ") else "0.0.0.0/0, ::/0"
+
                     return WireGuardConfig(
                         privateKey = privateKey,
-                        address = address,
-                        dns = dns,
+                        address = finalAddress,
+                        dns = finalDns,
                         mtu = mtu,
                         peerPublicKey = peerPublicKey,
                         peerEndpoint = peerEndpoint,
-                        peerAllowedIps = peerAllowedIps,
+                        peerAllowedIps = finalAllowedIps,
                         presharedKey = presharedKey,
                         persistentKeepalive = keepalive
                     )

@@ -107,27 +107,29 @@ fun ServerSelectionSheet(
             ) {
                 Column {
                     Text(
-                        text = "Choose VPN Server",
+                        text = "WireGuard Profiles",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${servers.size} locations available",
+                        text = "${servers.size} profile(s) loaded",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(
-                        onClick = onPingAll,
-                        modifier = Modifier.testTag("btn_ping_all")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Test all latencies",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                    if (servers.isNotEmpty()) {
+                        IconButton(
+                            onClick = onPingAll,
+                            modifier = Modifier.testTag("btn_ping_all")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Test latencies",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     Button(
                         onClick = { showAddDialog = true },
@@ -136,74 +138,114 @@ fun ServerSelectionSheet(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add")
+                        Text("Import .conf")
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Search bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search country, city, or host...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("server_search_input"),
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
+            if (servers.isNotEmpty()) {
+                // Search bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search profile or endpoint host...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("server_search_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Filter Chips
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf("All", "Fastest", "Custom").forEach { filter ->
-                    FilterChip(
-                        selected = selectedFilter == filter,
-                        onClick = { selectedFilter = filter },
-                        label = { Text(filter) }
-                    )
-                }
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Server List
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredServers, key = { it.id }) { server ->
-                    ServerListItem(
-                        server = server,
-                        isSelected = selectedServer?.id == server.id,
-                        onClick = {
-                            onServerSelected(server)
-                            onDismiss()
-                        },
-                        onDelete = { onDeleteCustomServer(server.id) }
-                    )
-                }
-
-                if (filteredServers.isEmpty()) {
-                    item {
+            // Server List or Rich Empty State
+            if (servers.isEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 40.dp),
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "No servers found",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text(text = "🛡️", fontSize = 28.sp)
+                        }
+
+                        Text(
+                            text = "No WireGuard Profiles",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Text(
+                            text = "WireShield connects using authentic WireGuard .conf files. Tap below to select a .conf file from your device storage or paste configuration text.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+
+                        Button(
+                            onClick = { showAddDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_empty_state_import_conf")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Import WireGuard (.conf) File")
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredServers, key = { it.id }) { server ->
+                        ServerListItem(
+                            server = server,
+                            isSelected = selectedServer?.id == server.id,
+                            onClick = {
+                                onServerSelected(server)
+                                onDismiss()
+                            },
+                            onDelete = { onDeleteCustomServer(server.id) }
+                        )
+                    }
+
+                    if (filteredServers.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 40.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No profiles match your search",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -321,12 +363,13 @@ fun ServerListItem(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Ping pill
+            // Status / Ping pill
+            val isOffline = !server.isOnline || server.pingMs < 0
             val pingColor = when {
+                isOffline -> MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
                 server.pingMs in 1..60 -> EmeraldConnected
                 server.pingMs in 61..120 -> Color(0xFFFFB300)
-                server.pingMs > 120 -> Color(0xFFFF7043)
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                else -> Color(0xFFFF7043)
             }
 
             Box(
@@ -336,7 +379,7 @@ fun ServerListItem(
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = if (server.pingMs > 0) "${server.pingMs} ms" else "-- ms",
+                    text = if (isOffline) "OFFLINE" else "${server.pingMs} ms",
                     style = MaterialTheme.typography.labelSmall,
                     color = pingColor,
                     fontWeight = FontWeight.Bold

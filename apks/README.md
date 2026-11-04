@@ -1,71 +1,66 @@
 # WireShield VPN - Prebuilt APK Releases
 
-This directory contains prebuilt installable Android application packages (APKs) for WireShield VPN.
+This directory contains prebuilt installable Android application packages (APKs) for WireShield VPN, split by CPU architecture for maximum performance and minimal download size.
 
 ---
 
-## 📦 Available Releases
+## 📦 Architecture-Specific Releases (v2.0 - Split & Optimized)
 
-### 🚀 Version 2.0 (Latest Release - Full Feature Suite)
+By enabling **ABI Splits** and **R8 Code/Resource Minification**, individual APK sizes have been reduced from ~35 MB down to **~9.6 MB – 11 MB** (over 70% reduction in file size).
 
-| Attribute | Value |
-| :--- | :--- |
-| **Application Name** | WireShield VPN v2.0 |
-| **Package ID (`applicationId`)** | `com.aistudio.wireshieldvpn.kzp` |
-| **Version Name** | `2.0` |
-| **Version Code** | `2` |
-| **Min SDK** | `24` (Android 7.0 Nougat) |
-| **Target SDK** | `36` (Android 15 / 16 Preview) |
-| **File Names** | `WireShield-VPN-v2.0-debug.apk` / `app-debug.apk` |
-| **File Size** | ~23.5 MB |
-| **SHA-256 Checksum** | `c6bf6aebb20faa80c240705eedd6df463e818fe38c262364acd0a2e3775a1856` |
-| **Build Type** | Debug (Pre-signed with debug keystore) |
-
-#### 🌟 Key Features in v2.0:
-- **6 Specialized VPN Profiles**: Balanced Shield, Gaming (lowest latency / 1360 MTU), Streaming (4K optimized / 1420 MTU), Stealth Mode (anti-DPI obfuscation / 1280 MTU), P2P High-Speed, and Battery Saver.
-- **DNS Shield Protection**: Ad & Tracker blocker (AdGuard 94.140.14.14), Malware & Phishing protection (Quad9 9.9.9.9), Family Protection (CleanBrowsing SafeSearch), Ultra Fast (Cloudflare 1.1.1.1), and Custom upstream DNS.
-- **Split Tunneling**: Native per-application routing allowing selected apps (e.g. banking, food delivery) to bypass the VPN tunnel.
-- **Diagnostics & In-App Testing**: Built-in real-time Speed Test (Latency, Jitter, Download, Upload) and DNS/IP Leak diagnostic check.
-- **Emergency Panic Lockdown & Purge**: Instant cryptographic key wipe, custom node flush, and complete factory reset.
-- **Watchdog Kill Switch & Network Monitor**: Active background watchdog detecting silent connection drops and severing unencrypted traffic instantly.
+| Architecture / Target Device | APK File Name | Size | SHA-256 Checksum | Recommended For |
+| :--- | :--- | :--- | :--- | :--- |
+| **ARM64 (64-bit)** | `WireShield-v2.0-arm64-v8a.apk` | **11.0 MB** | `6f60db3dc500e775281b5e341ab384584b7f92dbcc10875de19c275a4f87c96f` | 95%+ of modern smartphones (Pixel, Galaxy S/A, Xiaomi, OnePlus, Pixel, etc.) |
+| **ARMv7 (32-bit)** | `WireShield-v2.0-armeabi-v7a.apk` | **9.6 MB** | `27819ef63f6c77f125d45ed8c4364bd12659a7a4a4b26f4a88c521aa245f84a2` | Older phones, budget Android devices, legacy TV sticks |
+| **x86_64 (64-bit Intel/AMD)** | `WireShield-v2.0-x86_64.apk` | **11.0 MB** | `d00d66819a96a05e9321beb5b67cbca9dbdc4372db487d67a85db186f5be3c43` | 64-bit Android Emulators, ChromeOS devices with x86 CPUs |
+| **x86 (32-bit Intel)** | `WireShield-v2.0-x86.apk` | **9.6 MB** | `84921e4811633d46ad715504efc859e4e9ba3e90c595fb9a11ce8154156d3c19` | 32-bit Emulators, Asus ZenFone Intel legacy devices |
+| **Universal (All-in-One)** | `WireShield-v2.0-universal.apk` | **19.0 MB** | `9b4a82ab566d4b84d2fe06864bdec4a30fafe4779185a12f54a0e7e41d6c5b8c` | Universal fallback containing native binaries for all 4 architectures |
 
 ---
 
-### 📦 Version 1.0 (Initial Release)
+## 🌟 Key Features & Architecture Highlights in v2.0
 
-| Attribute | Value |
-| :--- | :--- |
-| **File Name** | `WireShield-VPN-debug.apk` |
-| **Version Name** | `1.0` (Version Code `1`) |
-| **SHA-256 Checksum** | `cdbec1c6c3d19f8f1781ab2c41a8a3abe8f13a8a94a1e83775bfd32587c9d777` |
+- **Real Native WireGuard Tunneling**: Direct integration with GoBackend (`com.wireguard.android:tunnel`).
+- **Pre-Tunnel DNS Resolution & Caching**: Pre-resolves endpoint IP before tunnel creation to eliminate resolution deadlocks with Kill Switch.
+- **Dynamic Config Import**: Quick manual configuration via `.conf` files and QR Code scanning.
+- **6 Specialized Performance Profiles**: Balanced, Low Latency Gaming, 4K Streaming, Anti-DPI Stealth, High-Speed P2P, and Battery Saver.
+- **DNS Shield Protection**: Upstream DNS filtering including AdGuard, Quad9, CleanBrowsing SafeSearch, and Cloudflare 1.1.1.1.
+- **Per-App Split Tunneling**: Route specific apps inside or outside the VPN tunnel.
+- **Emergency Panic Lockdown & Key Purge**: Wipe active keys and clear sensitive configurations instantly.
 
 ---
 
 ## 📱 How to Install on Android
 
 ### Method 1: Via ADB (USB Debugging)
-Connect your phone with USB debugging enabled:
+Select the APK matching your target device/emulator architecture:
 ```bash
-adb install -r apks/WireShield-VPN-v2.0-debug.apk
+# For modern 64-bit phones (Pixel, Samsung, Xiaomi, etc.)
+adb install -r apks/WireShield-v2.0-arm64-v8a.apk
+
+# For 64-bit Android Studio Emulator / ChromeOS
+adb install -r apks/WireShield-v2.0-x86_64.apk
 ```
 
-### Method 2: Direct Phone Download / File Transfer
-1. Transfer `WireShield-VPN-v2.0-debug.apk` to your phone via USB, Google Drive, or local sharing.
-2. Tap the `.apk` file in your phone's File Manager.
-3. Allow "Install unknown apps" for your file manager if prompted.
-4. Tap **Install** and open **WireShield VPN**.
+### Method 2: Direct Installation on Phone
+1. Download `WireShield-v2.0-arm64-v8a.apk` (or `WireShield-v2.0-universal.apk` if unsure).
+2. Tap the `.apk` file in your Android File Manager.
+3. Allow "Install unknown apps" if prompted.
+4. Tap **Install** and launch **WireShield VPN**.
 
 ---
 
-## 🛠️ How to Rebuild APKs
+## 🛠️ How to Rebuild Architecture-Split APKs
 
-To recompile and update the files in this directory:
+To recompile release builds with ABI splitting:
 ```bash
-# Clean and assemble debug APK
-gradle :app:assembleDebug
+# Clean and assemble release APK splits
+gradle :app:assembleRelease
 
-# Copy to apks directory
-mkdir -p apks
-cp app/build/outputs/apk/debug/app-debug.apk apks/WireShield-VPN-v2.0-debug.apk
-cp app/build/outputs/apk/debug/app-debug.apk apks/app-debug.apk
+# Split APKs will be output to:
+# app/build/outputs/apk/release/app-arm64-v8a-release.apk
+# app/build/outputs/apk/release/app-armeabi-v7a-release.apk
+# app/build/outputs/apk/release/app-x86-release.apk
+# app/build/outputs/apk/release/app-x86_64-release.apk
+# app/build/outputs/apk/release/app-universal-release.apk
 ```

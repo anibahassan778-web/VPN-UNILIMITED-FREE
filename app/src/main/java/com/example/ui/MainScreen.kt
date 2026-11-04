@@ -141,7 +141,10 @@ fun MainScreen(
     }
 
     val handleConnectClick = {
-        if (vpnState == VpnState.CONNECTED || vpnState == VpnState.CONNECTING) {
+        if (currentServer == null) {
+            Toast.makeText(context, "Please import a WireGuard .conf file first", Toast.LENGTH_SHORT).show()
+            showServerSheet = true
+        } else if (vpnState == VpnState.CONNECTED || vpnState == VpnState.CONNECTING) {
             onToggleConnect()
         } else {
             val prepareIntent = VpnService.prepare(context)
@@ -173,17 +176,19 @@ fun MainScreen(
                     }
                 },
                 actions = {
-                    val badgeColor = when (vpnState) {
-                        VpnState.CONNECTED -> EmeraldConnected
-                        VpnState.BLOCKED -> RedDisconnected
-                        VpnState.CONNECTING, VpnState.RECONNECTING -> AmberConnecting
+                    val badgeColor = when {
+                        vpnState == VpnState.CONNECTED -> EmeraldConnected
+                        vpnState == VpnState.BLOCKED -> RedDisconnected
+                        vpnState == VpnState.CONNECTING || vpnState == VpnState.RECONNECTING -> AmberConnecting
+                        currentServer == null -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
 
-                    val badgeText = when (vpnState) {
-                        VpnState.CONNECTED -> "PROTECTED"
-                        VpnState.BLOCKED -> "INTERNET BLOCKED"
-                        VpnState.CONNECTING, VpnState.RECONNECTING -> "CONNECTING"
+                    val badgeText = when {
+                        vpnState == VpnState.CONNECTED -> "PROTECTED"
+                        vpnState == VpnState.BLOCKED -> "INTERNET BLOCKED"
+                        vpnState == VpnState.CONNECTING || vpnState == VpnState.RECONNECTING -> "CONNECTING"
+                        currentServer == null -> "NO PROFILE"
                         else -> "UNPROTECTED"
                     }
 
@@ -242,6 +247,7 @@ fun MainScreen(
             // Hero Connection Centerpiece
             HeroConnectionButton(
                 vpnState = vpnState,
+                hasServer = currentServer != null,
                 onClick = handleConnectClick
             )
 
@@ -424,6 +430,7 @@ fun EmergencyBlockBanner(
 @Composable
 fun HeroConnectionButton(
     vpnState: VpnState,
+    hasServer: Boolean = true,
     onClick: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -444,28 +451,30 @@ fun HeroConnectionButton(
             VpnState.CONNECTING, VpnState.RECONNECTING -> AmberConnecting
             VpnState.DISCONNECTING -> AmberConnecting
             VpnState.ERROR -> RedDisconnected
-            VpnState.DISCONNECTED -> CyanPrimary
+            VpnState.DISCONNECTED -> if (!hasServer) MaterialTheme.colorScheme.outline else CyanPrimary
         },
         label = "glow_color"
     )
 
-    val statusText = when (vpnState) {
-        VpnState.CONNECTED -> "CONNECTED"
-        VpnState.BLOCKED -> "TRAFFIC BLOCKED"
-        VpnState.CONNECTING -> "CONNECTING..."
-        VpnState.RECONNECTING -> "RECONNECTING"
-        VpnState.DISCONNECTING -> "DISCONNECTING..."
-        VpnState.ERROR -> "CONNECTION FAILED"
-        VpnState.DISCONNECTED -> "DISCONNECTED"
+    val statusText = when {
+        vpnState == VpnState.CONNECTED -> "CONNECTED"
+        vpnState == VpnState.BLOCKED -> "TRAFFIC BLOCKED"
+        vpnState == VpnState.CONNECTING -> "CONNECTING..."
+        vpnState == VpnState.RECONNECTING -> "RECONNECTING"
+        vpnState == VpnState.DISCONNECTING -> "DISCONNECTING..."
+        vpnState == VpnState.ERROR -> "CONNECTION FAILED"
+        !hasServer -> "NO PROFILE"
+        else -> "DISCONNECTED"
     }
 
-    val actionHint = when (vpnState) {
-        VpnState.CONNECTED -> "Tap to Disconnect"
-        VpnState.BLOCKED -> "Kill Switch Active • Tap to Reconnect"
-        VpnState.CONNECTING, VpnState.RECONNECTING -> "Please wait..."
-        VpnState.DISCONNECTING -> "Disconnecting..."
-        VpnState.ERROR -> "Tap to Retry"
-        VpnState.DISCONNECTED -> "Tap to Connect"
+    val actionHint = when {
+        vpnState == VpnState.CONNECTED -> "Tap to Disconnect"
+        vpnState == VpnState.BLOCKED -> "Kill Switch Active • Tap to Reconnect"
+        vpnState == VpnState.CONNECTING || vpnState == VpnState.RECONNECTING -> "Please wait..."
+        vpnState == VpnState.DISCONNECTING -> "Disconnecting..."
+        vpnState == VpnState.ERROR -> "Tap to Retry"
+        !hasServer -> "Tap to Import WireGuard .conf"
+        else -> "Tap to Connect"
     }
 
     Column(
@@ -665,12 +674,12 @@ fun CurrentServerCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = server?.name ?: "Select a Server",
+                    text = server?.name ?: "No Profile Imported",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = if (server != null) "${server.city}, ${server.country}" else "Tap to choose location",
+                    text = if (server != null) "${server.city}, ${server.country} • ${server.endpointHost}" else "Tap to import a WireGuard .conf file",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -698,24 +707,26 @@ fun CurrentServerCard(
 
             // Latency & Change action
             Column(horizontalAlignment = Alignment.End) {
-                if (server != null && server.pingMs > 0) {
+                if (server != null) {
+                    val isOffline = !server.isOnline || server.pingMs < 0
+                    val statusColor = if (isOffline) MaterialTheme.colorScheme.error.copy(alpha = 0.8f) else EmeraldConnected
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(EmeraldConnected.copy(alpha = 0.15f))
+                            .background(statusColor.copy(alpha = 0.15f))
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "${server.pingMs} ms",
+                            text = if (isOffline) "OFFLINE" else "${server.pingMs} ms",
                             style = MaterialTheme.typography.labelSmall,
-                            color = EmeraldConnected,
+                            color = statusColor,
                             fontWeight = FontWeight.Bold
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                 }
                 Text(
-                    text = "Change ›",
+                    text = if (server != null) "Change ›" else "Import ›",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold

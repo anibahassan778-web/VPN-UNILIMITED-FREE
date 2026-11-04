@@ -67,11 +67,15 @@ object VpnManager {
         }
     }
 
-    fun selectServer(server: VpnServer, context: Context) {
+    fun selectServer(server: VpnServer?, context: Context) {
         _currentServer.value = server
         val settingsRepo = SettingsRepository(context)
-        settingsRepo.updateSettings { it.copy(selectedServerId = server.id) }
-        log("Selected server changed to: ${server.name} (${server.country})")
+        settingsRepo.updateSettings { it.copy(selectedServerId = server?.id ?: "") }
+        if (server != null) {
+            log("Selected server changed to: ${server.name} (${server.country})")
+        } else {
+            log("No server selected")
+        }
     }
 
     fun connect(context: Context, server: VpnServer? = _currentServer.value) {
@@ -188,25 +192,35 @@ object VpnManager {
         _speedTestResult.value = com.example.model.SpeedTestResult(isTesting = true)
         managerScope.launch(Dispatchers.IO) {
             try {
-                // Ping test
+                // Ping measurement using real TCP socket handshake
                 val pings = mutableListOf<Long>()
                 val testHost = _currentServer.value?.endpointHost ?: "1.1.1.1"
                 for (i in 0 until 3) {
                     val start = System.currentTimeMillis()
                     try {
-                        val socket = java.net.Socket()
-                        socket.connect(java.net.InetSocketAddress(testHost, 53), 1500)
-                        socket.close()
-                        pings.add(System.currentTimeMillis() - start)
+                        java.net.Socket().use { socket ->
+                            socket.connect(java.net.InetSocketAddress(testHost, 53), 2000)
+                            pings.add(System.currentTimeMillis() - start)
+                        }
                     } catch (_: Exception) {
-                        pings.add(28L + (Math.random() * 18).toLong())
+                        try {
+                            val addr = java.net.InetAddress.getByName(testHost)
+                            if (addr.isReachable(1500)) {
+                                pings.add(System.currentTimeMillis() - start)
+                            }
+                        } catch (_: Exception) {
+                            // Unreachable - do not invent fake random numbers
+                        }
                     }
                     delay(80)
                 }
-                val avgPing = if (pings.isNotEmpty()) pings.average().toInt() else 32
-                val jitter = if (pings.size > 1) ((pings.maxOrNull() ?: 35) - (pings.minOrNull() ?: 20)).toInt() / 2 else 2
 
-                // Download speed measurement
+                val avgPing = if (pings.isNotEmpty()) pings.average().toInt() else -1
+                val jitter = if (pings.size > 1) {
+                    ((pings.maxOrNull() ?: 0L) - (pings.minOrNull() ?: 0L)).toInt()
+                } else if (pings.size == 1) 0 else -1
+
+                // Real Download speed measurement
                 val testUrl = "https://speed.cloudflare.com/__down?bytes=1000000"
                 var dlSpeed = 0L
                 val dlStart = System.currentTimeMillis()
@@ -218,13 +232,15 @@ object VpnManager {
                     val req = okhttp3.Request.Builder().url(testUrl).build()
                     val resp = client.newCall(req).execute()
                     val bytes = resp.body?.bytes()?.size ?: 0
-                    val durationMs = (System.currentTimeMillis() - dlStart).coerceAtLeast(100)
+                    val durationMs = (System.currentTimeMillis() - dlStart).coerceAtLeast(50)
                     dlSpeed = (bytes.toLong() * 1000L) / durationMs
                 } catch (_: Exception) {
-                    dlSpeed = (_stats.value.rxSpeedBps * 3).coerceAtLeast(14_800_000L)
+                    // On failure, record 0 (no fake fallback numbers)
+                    dlSpeed = 0L
                 }
 
-                val upSpeed = (dlSpeed * 0.42).toLong().coerceAtLeast(5_200_000L)
+                // If download succeeded and tunnel is active, measure real upload or 0
+                val upSpeed = if (dlSpeed > 0L) (_stats.value.txSpeedBps).coerceAtLeast(0L) else 0L
 
                 _speedTestResult.value = com.example.model.SpeedTestResult(
                     isTesting = false,
@@ -232,19 +248,25 @@ object VpnManager {
                     jitterMs = jitter,
                     downloadSpeedBps = dlSpeed,
                     uploadSpeedBps = upSpeed,
-                    packetLossPercent = 0,
+                    packetLossPercent = if (pings.isEmpty()) 100 else ((3 - pings.size) * 33),
                     testTimestamp = System.currentTimeMillis()
                 )
-                log("Speed test completed: Ping ${avgPing}ms | Down: ${VpnStats.formatSpeed(dlSpeed)} | Up: ${VpnStats.formatSpeed(upSpeed)}")
-            } catch (_: Exception) {
+                if (avgPing >= 0) {
+                    log("Speed test completed: Ping ${avgPing}ms | Down: ${VpnStats.formatSpeed(dlSpeed)} | Up: ${VpnStats.formatSpeed(upSpeed)}")
+                } else {
+                    log("Speed test: Server host $testHost is unreachable")
+                }
+            } catch (e: Exception) {
                 _speedTestResult.value = com.example.model.SpeedTestResult(
                     isTesting = false,
-                    pingMs = 28,
-                    jitterMs = 2,
-                    downloadSpeedBps = 16_000_000L,
-                    uploadSpeedBps = 6_500_000L,
+                    pingMs = -1,
+                    jitterMs = -1,
+                    downloadSpeedBps = 0L,
+                    uploadSpeedBps = 0L,
+                    packetLossPercent = 100,
                     testTimestamp = System.currentTimeMillis()
                 )
+                log("Speed test failed: ${e.message}")
             }
         }
     }
@@ -289,6 +311,7 @@ object VpnManager {
         settingsRepo.purgeAllData()
         val serverRepo = ServerRepository(context)
         serverRepo.resetToDefaults()
+        _currentServer.value = null
         _logs.value = listOf("[SYSTEM] Panic wipe executed. All keys, custom nodes, and credentials permanently purged.")
         _stats.value = VpnStats()
         _speedTestResult.value = com.example.model.SpeedTestResult()

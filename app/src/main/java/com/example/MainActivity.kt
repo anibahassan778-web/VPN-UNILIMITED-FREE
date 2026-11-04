@@ -92,8 +92,19 @@ class MainActivity : ComponentActivity() {
                             onToggleConnect = { VpnManager.toggleConnection(this@MainActivity) },
                             onUnblockTraffic = { VpnManager.unblockTraffic(this@MainActivity) },
                             onSelectServer = { server -> VpnManager.selectServer(server, this@MainActivity) },
-                            onAddCustomServer = { newServer -> serverRepo.addCustomServer(newServer) },
-                            onDeleteCustomServer = { id -> serverRepo.removeCustomServer(id) },
+                            onAddCustomServer = { newServer ->
+                                serverRepo.addCustomServer(newServer)
+                                if (VpnManager.currentServer.value == null) {
+                                    VpnManager.selectServer(newServer, this@MainActivity)
+                                }
+                            },
+                            onDeleteCustomServer = { id ->
+                                serverRepo.removeCustomServer(id)
+                                if (VpnManager.currentServer.value?.id == id) {
+                                    val remaining = serverRepo.servers.value.firstOrNull { it.id != id }
+                                    VpnManager.selectServer(remaining, this@MainActivity)
+                                }
+                            },
                             onSelectProfile = { profile ->
                                 settingsRepo.updateSettings { it.copy(profileMode = profile) }
                             },

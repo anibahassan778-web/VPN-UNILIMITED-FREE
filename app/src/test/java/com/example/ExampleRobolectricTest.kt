@@ -39,11 +39,35 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `server repository has default servers`() {
+    fun `server repository initializes empty and supports adding custom servers`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val serverRepo = ServerRepository(context)
+        serverRepo.resetToDefaults()
         val servers = serverRepo.servers.value
-        assertTrue(servers.isNotEmpty())
-        assertTrue(servers.any { it.countryCode == "DE" })
+        // All fake servers are eliminated; initial server list is empty until user imports a .conf
+        assertTrue(servers.isEmpty())
+
+        val customServer = com.example.model.VpnServer(
+            id = "test-imported-1",
+            name = "Test Imported WG Node",
+            country = "Custom",
+            countryCode = "UN",
+            city = "VPS",
+            endpointHost = "203.0.113.5",
+            endpointPort = 51820,
+            publicKey = "0000000000000000000000000000000000000000000=",
+            clientPrivateKey = "1111111111111111111111111111111111111111111=",
+            clientIp = "10.66.66.2/32",
+            dnsServers = "1.1.1.1",
+            isCustom = true
+        )
+        serverRepo.addCustomServer(customServer)
+        val updatedServers = serverRepo.servers.value
+        assertEquals(1, updatedServers.size)
+        assertEquals("test-imported-1", updatedServers.first().id)
+        assertEquals("1111111111111111111111111111111111111111111=", updatedServers.first().clientPrivateKey)
+
+        serverRepo.removeCustomServer("test-imported-1")
+        assertTrue(serverRepo.servers.value.isEmpty())
     }
 }

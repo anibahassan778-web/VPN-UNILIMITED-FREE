@@ -193,7 +193,9 @@ object NetworkMonitor {
     }
 
     fun reportPacketActivity(txBytes: Long, rxBytes: Long) {
-        if (rxBytes > 0 || txBytes > 0) {
+        // Only incoming data (rxBytes > 0) proves traffic is flowing back through the tunnel;
+        // tx alone will increment even when sending into a dead network or blackhole.
+        if (rxBytes > 0) {
             lastPacketTimestamp.set(System.currentTimeMillis())
         }
     }
@@ -259,7 +261,7 @@ object NetworkMonitor {
             // let's verify if DNS resolves or ping succeeds
             try {
                 val address = java.net.InetAddress.getByName(host)
-                address.isReachable(2000) || address.hostAddress.isNotBlank()
+                address.isReachable(2000) || (address.hostAddress?.isNotBlank() == true)
             } catch (_: Exception) {
                 false
             }

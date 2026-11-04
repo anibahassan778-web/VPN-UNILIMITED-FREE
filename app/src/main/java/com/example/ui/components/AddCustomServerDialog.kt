@@ -1,36 +1,58 @@
 package com.example.ui.components
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.crypto.WireGuardCrypto
+import androidx.compose.ui.unit.sp
 import com.example.model.VpnServer
 import com.example.model.WireGuardConfig
+import com.example.ui.theme.EmeraldConnected
 import java.util.UUID
 
 @Composable
@@ -38,166 +60,201 @@ fun AddCustomServerDialog(
     onDismiss: () -> Unit,
     onServerAdded: (VpnServer) -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Form, 1: Raw Config
+    val context = LocalContext.current
     var rawConfigText by remember { mutableStateOf("") }
-
-    var serverName by remember { mutableStateOf("") }
-    var country by remember { mutableStateOf("Custom Server") }
-    var city by remember { mutableStateOf("Self-Hosted") }
-    var endpointHost by remember { mutableStateOf("") }
-    var endpointPort by remember { mutableStateOf("51820") }
-    var publicKey by remember { mutableStateOf("") }
-    var presharedKey by remember { mutableStateOf("") }
-    var clientIp by remember { mutableStateOf("10.66.66.2/32") }
-    var dnsServers by remember { mutableStateOf("1.1.1.1, 1.0.0.1") }
+    var profileName by remember { mutableStateOf("") }
+    var countryName by remember { mutableStateOf("WireGuard Node") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var parsedConfig by remember { mutableStateOf<WireGuardConfig?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val content = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                if (!content.isNullOrBlank()) {
+                    rawConfigText = content
+                    val filename = getFileNameFromUri(context, uri)
+                    if (!filename.isNullOrBlank() && profileName.isBlank()) {
+                        profileName = filename
+                    }
+                    val config = WireGuardConfig.parse(content)
+                    if (config != null) {
+                        parsedConfig = config
+                        errorMessage = null
+                        Toast.makeText(context, "Valid WireGuard configuration loaded", Toast.LENGTH_SHORT).show()
+                    } else {
+                        parsedConfig = null
+                        errorMessage = "Invalid WireGuard format: missing [Interface] or [Peer] section"
+                    }
+                } else {
+                    errorMessage = "The selected file was empty"
+                }
+            } catch (e: Exception) {
+                errorMessage = "Failed to read file: ${e.message}"
+            }
+        }
+    }
+
+    val updateParsedState: (String) -> Unit = { text ->
+        rawConfigText = text
+        if (text.isNotBlank()) {
+            val config = WireGuardConfig.parse(text)
+            if (config != null) {
+                parsedConfig = config
+                errorMessage = null
+                if (profileName.isBlank()) {
+                    val host = config.peerEndpoint.split(":").firstOrNull() ?: "wireguard"
+                    profileName = "WG-$host"
+                }
+            } else {
+                parsedConfig = null
+            }
+        } else {
+            parsedConfig = null
+            errorMessage = null
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add WireGuard Server") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Import WireGuard Profile", fontWeight = FontWeight.Bold)
+            }
+        },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                TabRow(selectedTabIndex = selectedTab) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Manual") }
+                Text(
+                    text = "WireShield operates exclusively with genuine WireGuard .conf files. Select a .conf file from your device or paste its content below.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // File Picker Button
+                OutlinedButton(
+                    onClick = {
+                        filePickerLauncher.launch(arrayOf("*/*"))
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("btn_select_conf_file"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("Import .conf") }
-                    )
+                ) {
+                    Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Select .conf File From Storage", fontWeight = FontWeight.SemiBold)
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                // Profile Name Field
+                OutlinedTextField(
+                    value = profileName,
+                    onValueChange = { profileName = it },
+                    label = { Text("Profile Name (Optional)") },
+                    placeholder = { Text("e.g. Home Server, Mullvad Amsterdam") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_conf_profile_name"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
 
-                if (selectedTab == 0) {
-                    OutlinedTextField(
-                        value = serverName,
-                        onValueChange = { serverName = it },
-                        label = { Text("Server Name *") },
-                        placeholder = { Text("e.g. My Home VPS") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_server_name"),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                // Paste Configuration Area
+                OutlinedTextField(
+                    value = rawConfigText,
+                    onValueChange = updateParsedState,
+                    label = { Text("WireGuard .conf Content") },
+                    placeholder = {
+                        Text(
+                            "[Interface]\nPrivateKey = ...\nAddress = 10.66.66.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nEndpoint = 198.51.100.1:51820\nAllowedIPs = 0.0.0.0/0, ::/0"
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .testTag("input_raw_config"),
+                    shape = RoundedCornerShape(12.dp),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Parsed Config Inspection Preview Card
+                if (parsedConfig != null) {
+                    val cfg = parsedConfig!!
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        OutlinedTextField(
-                            value = endpointHost,
-                            onValueChange = { endpointHost = it },
-                            label = { Text("Host / IP *") },
-                            placeholder = { Text("198.51.100.1") },
-                            modifier = Modifier
-                                .weight(2f)
-                                .testTag("input_endpoint_host"),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = endpointPort,
-                            onValueChange = { endpointPort = it },
-                            label = { Text("Port *") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("input_endpoint_port"),
-                            singleLine = true
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = publicKey,
-                        onValueChange = { publicKey = it },
-                        label = { Text("Server Public Key *") },
-                        placeholder = { Text("Base64 32-byte key") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_public_key"),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = country,
-                            onValueChange = { country = it },
-                            label = { Text("Country") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = city,
-                            onValueChange = { city = it },
-                            label = { Text("City") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = clientIp,
-                        onValueChange = { clientIp = it },
-                        label = { Text("Client Assigned IP") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = presharedKey,
-                        onValueChange = { presharedKey = it },
-                        label = { Text("Pre-shared Key (Optional)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = dnsServers,
-                        onValueChange = { dnsServers = it },
-                        label = { Text("DNS Servers") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                } else {
-                    OutlinedTextField(
-                        value = rawConfigText,
-                        onValueChange = { rawConfigText = it },
-                        label = { Text("Paste WireGuard .conf content") },
-                        placeholder = {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = EmeraldConnected,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Valid WireGuard Configuration",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldConnected
+                                )
+                            }
                             Text(
-                                "[Interface]\nPrivateKey = ...\nAddress = 10.66.66.2/32\n\n[Peer]\nPublicKey = ...\nEndpoint = 1.2.3.4:51820\nAllowedIPs = 0.0.0.0/0"
+                                text = "• Endpoint: ${cfg.peerEndpoint}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
                             )
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                            .testTag("input_raw_config")
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Parses [Interface] Address and [Peer] Endpoint & PublicKey automatically.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                            Text(
+                                text = "• Client IP: ${cfg.address}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "• DNS: ${cfg.dns}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "• Peer Key: ${cfg.peerPublicKey.take(16)}...",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            if (cfg.privateKey.isNotBlank()) {
+                                Text(
+                                    text = "• Client Private Key: Verified Present",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EmeraldConnected,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
                 }
 
                 if (errorMessage != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = errorMessage!!,
                         color = MaterialTheme.colorScheme.error,
@@ -209,70 +266,42 @@ fun AddCustomServerDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (selectedTab == 0) {
-                        if (serverName.isBlank()) {
-                            errorMessage = "Server name is required"
-                            return@Button
-                        }
-                        if (endpointHost.isBlank()) {
-                            errorMessage = "Host/IP is required"
-                            return@Button
-                        }
-                        val portNum = endpointPort.toIntOrNull()
-                        if (portNum == null || portNum !in 1..65535) {
-                            errorMessage = "Invalid port number"
-                            return@Button
-                        }
-                        if (!WireGuardCrypto.isValidKey(publicKey)) {
-                            errorMessage = "Invalid 32-byte Base64 Public Key"
-                            return@Button
-                        }
-
-                        val newServer = VpnServer(
-                            id = "custom-" + UUID.randomUUID().toString().take(8),
-                            name = serverName.trim(),
-                            country = country.trim(),
-                            countryCode = "UN",
-                            city = city.trim(),
-                            endpointHost = endpointHost.trim(),
-                            endpointPort = portNum,
-                            publicKey = publicKey.trim(),
-                            presharedKey = presharedKey.takeIf { it.isNotBlank() }?.trim(),
-                            clientIp = clientIp.trim(),
-                            dnsServers = dnsServers.trim(),
-                            isCustom = true
-                        )
-                        onServerAdded(newServer)
-                    } else {
-                        val parsed = WireGuardConfig.parse(rawConfigText)
-                        if (parsed == null) {
-                            errorMessage = "Failed to parse WireGuard config. Check [Peer] and Endpoint syntax."
-                            return@Button
-                        }
-                        val endpointParts = parsed.peerEndpoint.split(":")
-                        val host = endpointParts.getOrElse(0) { "" }
-                        val port = endpointParts.getOrNull(1)?.toIntOrNull() ?: 51820
-
-                        val newServer = VpnServer(
-                            id = "custom-" + UUID.randomUUID().toString().take(8),
-                            name = if (serverName.isNotBlank()) serverName else "Custom Node ($host)",
-                            country = "Custom",
-                            countryCode = "UN",
-                            city = "Self-Hosted",
-                            endpointHost = host,
-                            endpointPort = port,
-                            publicKey = parsed.peerPublicKey,
-                            presharedKey = parsed.presharedKey,
-                            clientIp = parsed.address,
-                            dnsServers = parsed.dns,
-                            isCustom = true
-                        )
-                        onServerAdded(newServer)
+                    val config = parsedConfig ?: WireGuardConfig.parse(rawConfigText)
+                    if (config == null) {
+                        errorMessage = "Cannot save: Please provide a valid WireGuard configuration with [Interface] and [Peer]."
+                        return@Button
                     }
+
+                    val endpointParts = config.peerEndpoint.split(":")
+                    val host = endpointParts.getOrElse(0) { "" }
+                    val port = endpointParts.getOrNull(1)?.toIntOrNull() ?: 51820
+
+                    val finalName = if (profileName.isNotBlank()) profileName.trim() else "WG-$host"
+
+                    val newServer = VpnServer(
+                        id = "imported-" + UUID.randomUUID().toString().take(8),
+                        name = finalName,
+                        country = countryName,
+                        countryCode = "UN",
+                        city = host,
+                        endpointHost = host,
+                        endpointPort = port,
+                        publicKey = config.peerPublicKey,
+                        presharedKey = config.presharedKey,
+                        clientPrivateKey = config.privateKey.takeIf { it.isNotBlank() },
+                        clientIp = config.address,
+                        dnsServers = config.dns,
+                        pingMs = -1,
+                        loadPercent = 0,
+                        isCustom = true,
+                        isOnline = true
+                    )
+                    onServerAdded(newServer)
                 },
-                modifier = Modifier.testTag("btn_save_server")
+                modifier = Modifier.testTag("btn_save_server"),
+                enabled = rawConfigText.isNotBlank()
             ) {
-                Text("Add Server")
+                Text("Import Profile")
             }
         },
         dismissButton = {
@@ -281,4 +310,29 @@ fun AddCustomServerDialog(
             }
         }
     )
+}
+
+private fun getFileNameFromUri(context: Context, uri: Uri): String? {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0) {
+                        result = cursor.getString(nameIndex)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // fallback
+        }
+    }
+    if (result == null) {
+        result = uri.path?.let { path ->
+            val cut = path.lastIndexOf('/')
+            if (cut != -1) path.substring(cut + 1) else path
+        }
+    }
+    return result?.removeSuffix(".conf")?.removeSuffix(".txt")
 }

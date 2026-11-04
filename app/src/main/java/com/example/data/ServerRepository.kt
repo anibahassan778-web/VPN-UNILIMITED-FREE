@@ -16,7 +16,16 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.TimeUnit
 
-class ServerRepository(context: Context) {
+/**
+ * Repository for managing WireGuard servers.
+ *
+ * Single Source of Truth:
+ * - Reads bundled fallback servers from assets/servers.json (with clear YOUR_SERVER_IP and YOUR_SERVER_PUBLIC_KEY placeholders).
+ * - Persists and merges custom user-defined nodes from SharedPreferences.
+ * - Syncs with self-hosted management backend REST API.
+ * - Measures real latency with zero invented/random numbers; unreachable or placeholder servers are marked OFFLINE.
+ */
+class ServerRepository(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("wireshield_servers", Context.MODE_PRIVATE)
     private val httpClient = OkHttpClient.Builder()
@@ -24,101 +33,54 @@ class ServerRepository(context: Context) {
         .readTimeout(5, TimeUnit.SECONDS)
         .build()
 
-    private val defaultServers = listOf(
-        VpnServer(
-            id = "srv-de-fra",
-            name = "Frankfurt Edge 01",
-            country = "Germany",
-            countryCode = "DE",
-            city = "Frankfurt",
-            endpointHost = "de-fra.wireshield-relay.net",
-            endpointPort = 51820,
-            publicKey = "0a5dY+T0w6O3kU2sW1V5a8b7C9d0E2f4G6h8I0j2K4M=",
-            clientIp = "10.66.66.2/32",
-            dnsServers = "1.1.1.1, 1.0.0.1",
-            pingMs = 24,
-            loadPercent = 32,
-            isCustom = false
-        ),
-        VpnServer(
-            id = "srv-nl-ams",
-            name = "Amsterdam Fast Relay",
-            country = "Netherlands",
-            countryCode = "NL",
-            city = "Amsterdam",
-            endpointHost = "nl-ams.wireshield-relay.net",
-            endpointPort = 51820,
-            publicKey = "8b9cE0f2A4c6E8g0I2k4M6o8Q0s2U4w6Y8a0C2e4G6I=",
-            clientIp = "10.66.66.3/32",
-            dnsServers = "9.9.9.9, 149.112.112.112",
-            pingMs = 31,
-            loadPercent = 45,
-            isCustom = false
-        ),
-        VpnServer(
-            id = "srv-ch-zur",
-            name = "Zurich Privacy Vault",
-            country = "Switzerland",
-            countryCode = "CH",
-            city = "Zurich",
-            endpointHost = "ch-zur.wireshield-relay.net",
-            endpointPort = 51820,
-            publicKey = "5f7aB9d1F3h5J7l9N1p3R5t7V9x1Z3b5D7f9H1j3L5N=",
-            clientIp = "10.66.66.4/32",
-            dnsServers = "1.1.1.1, 9.9.9.9",
-            pingMs = 38,
-            loadPercent = 18,
-            isCustom = false
-        ),
-        VpnServer(
-            id = "srv-us-nyc",
-            name = "New York Metro 04",
-            country = "United States",
-            countryCode = "US",
-            city = "New York",
-            endpointHost = "us-nyc.wireshield-relay.net",
-            endpointPort = 51820,
-            publicKey = "9c0eG2i4K6m8O0q2S4u6W8y0A2c4E6g8I0k2M4o6Q8S=",
-            clientIp = "10.66.66.5/32",
-            dnsServers = "1.1.1.1, 1.0.0.1",
-            pingMs = 85,
-            loadPercent = 58,
-            isCustom = false
-        ),
-        VpnServer(
-            id = "srv-sg-sin",
-            name = "Singapore Hub",
-            country = "Singapore",
-            countryCode = "SG",
-            city = "Singapore",
-            endpointHost = "sg-sin.wireshield-relay.net",
-            endpointPort = 51820,
-            publicKey = "3d5fH7j9L1n3P5r7T9v1X3z5B7d9F1h3J5l7N9p1R3T=",
-            clientIp = "10.66.66.6/32",
-            dnsServers = "1.1.1.1, 8.8.8.8",
-            pingMs = 160,
-            loadPercent = 41,
-            isCustom = false
-        ),
-        VpnServer(
-            id = "srv-jp-tyo",
-            name = "Tokyo Express",
-            country = "Japan",
-            countryCode = "JP",
-            city = "Tokyo",
-            endpointHost = "jp-tyo.wireshield-relay.net",
-            endpointPort = 51820,
-            publicKey = "1a3cE5g7I9k1M3o5Q7s9U1w3Y5a7C9e1G3i5K7m9O1Q=",
-            clientIp = "10.66.66.7/32",
-            dnsServers = "1.1.1.1, 1.0.0.1",
-            pingMs = 190,
-            loadPercent = 29,
-            isCustom = false
-        )
-    )
+    // Fallback default servers using explicit placeholders
+    private val defaultServers: List<VpnServer> by lazy {
+        loadServersFromAsset()
+    }
 
     private val _servers = MutableStateFlow<List<VpnServer>>(loadAllServers())
     val servers: StateFlow<List<VpnServer>> = _servers.asStateFlow()
+
+    private fun loadServersFromAsset(): List<VpnServer> {
+        return try {
+            val jsonString = context.assets.open("servers.json").bufferedReader().use { it.readText() }
+            parseServerListJson(jsonString, isCustom = false)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun parseServerListJson(jsonStr: String, isCustom: Boolean): List<VpnServer> {
+        val list = mutableListOf<VpnServer>()
+        val jsonArray = JSONArray(jsonStr)
+        for (i in 0 until jsonArray.length()) {
+            val obj = jsonArray.getJSONObject(i)
+            val host = obj.getString("endpointHost")
+            val pubKey = obj.getString("publicKey")
+            val isConfigured = !host.contains("YOUR_SERVER") && !pubKey.contains("YOUR_SERVER") && host.isNotBlank() && pubKey.isNotBlank()
+            list.add(
+                VpnServer(
+                    id = obj.getString("id"),
+                    name = obj.getString("name"),
+                    country = obj.getString("country"),
+                    countryCode = obj.optString("countryCode", "UN"),
+                    city = obj.getString("city"),
+                    endpointHost = host,
+                    endpointPort = obj.getInt("endpointPort"),
+                    publicKey = pubKey,
+                    presharedKey = obj.optString("presharedKey").takeIf { it.isNotBlank() },
+                    clientPrivateKey = obj.optString("clientPrivateKey").takeIf { it.isNotBlank() },
+                    clientIp = obj.optString("clientIp", "10.66.66.2/32"),
+                    dnsServers = obj.optString("dnsServers", "1.1.1.1, 1.0.0.1"),
+                    pingMs = obj.optInt("pingMs", -1),
+                    loadPercent = obj.optInt("loadPercent", 0),
+                    isCustom = isCustom,
+                    isOnline = obj.optBoolean("isOnline", isConfigured) && isConfigured
+                )
+            )
+        }
+        return list
+    }
 
     private fun loadAllServers(): List<VpnServer> {
         val customServers = loadCustomServers()
@@ -128,30 +90,7 @@ class ServerRepository(context: Context) {
     private fun loadCustomServers(): List<VpnServer> {
         val jsonStr = prefs.getString(KEY_CUSTOM_SERVERS, null) ?: return emptyList()
         return try {
-            val jsonArray = JSONArray(jsonStr)
-            val list = mutableListOf<VpnServer>()
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                list.add(
-                    VpnServer(
-                        id = obj.getString("id"),
-                        name = obj.getString("name"),
-                        country = obj.getString("country"),
-                        countryCode = obj.optString("countryCode", "UN"),
-                        city = obj.getString("city"),
-                        endpointHost = obj.getString("endpointHost"),
-                        endpointPort = obj.getInt("endpointPort"),
-                        publicKey = obj.getString("publicKey"),
-                        presharedKey = obj.optString("presharedKey").takeIf { it.isNotBlank() },
-                        clientIp = obj.optString("clientIp", "10.66.66.2/32"),
-                        dnsServers = obj.optString("dnsServers", "1.1.1.1, 1.0.0.1"),
-                        pingMs = obj.optInt("pingMs", -1),
-                        loadPercent = obj.optInt("loadPercent", 10),
-                        isCustom = true
-                    )
-                )
-            }
-            list
+            parseServerListJson(jsonStr, isCustom = true)
         } catch (_: Exception) {
             emptyList()
         }
@@ -170,10 +109,12 @@ class ServerRepository(context: Context) {
                 put("endpointPort", server.endpointPort)
                 put("publicKey", server.publicKey)
                 put("presharedKey", server.presharedKey ?: "")
+                put("clientPrivateKey", server.clientPrivateKey ?: "")
                 put("clientIp", server.clientIp)
                 put("dnsServers", server.dnsServers)
                 put("pingMs", server.pingMs)
                 put("loadPercent", server.loadPercent)
+                put("isOnline", server.isOnline)
             }
             jsonArray.put(obj)
         }
@@ -181,7 +122,7 @@ class ServerRepository(context: Context) {
     }
 
     fun getServerById(id: String): VpnServer? {
-        return _servers.value.find { it.id == id } ?: defaultServers.firstOrNull()
+        return _servers.value.find { it.id == id }
     }
 
     fun addCustomServer(server: VpnServer) {
@@ -203,36 +144,49 @@ class ServerRepository(context: Context) {
         _servers.value = defaultServers
     }
 
+    /**
+     * Probes real server latency.
+     * Returns real ping in ms, or -1 (OFFLINE) on failure.
+     * Never invents random or fake numbers.
+     */
     suspend fun pingServer(server: VpnServer): Int = withContext(Dispatchers.IO) {
+        // Placeholder check: servers with placeholder IP are instantly marked OFFLINE
+        if (server.endpointHost.contains("YOUR_SERVER") || server.publicKey.contains("YOUR_SERVER")) {
+            updateServerStatus(server.id, pingMs = -1, isOnline = false)
+            return@withContext -1
+        }
+
         val startTime = System.currentTimeMillis()
         try {
             Socket().use { socket ->
-                // WireGuard is UDP, but most dual-stack VPN servers also accept/respond or we test TCP handshake to their management/HTTPS port or UDP probing
                 socket.connect(InetSocketAddress(server.endpointHost, server.endpointPort), 2000)
             }
             val elapsed = (System.currentTimeMillis() - startTime).toInt()
-            updateServerPing(server.id, elapsed)
+            updateServerStatus(server.id, pingMs = elapsed, isOnline = true)
             elapsed
         } catch (_: Exception) {
-            // Estimate ping based on host resolution time and socket probe
+            // TCP connect failed; try ICMP isReachable probe
             try {
-                val resolveStart = System.currentTimeMillis()
-                java.net.InetAddress.getByName(server.endpointHost)
-                val resolveElapsed = (System.currentTimeMillis() - resolveStart).toInt()
-                val estimatedPing = (resolveElapsed + (20..50).random()).coerceIn(15, 350)
-                updateServerPing(server.id, estimatedPing)
-                estimatedPing
+                val address = java.net.InetAddress.getByName(server.endpointHost)
+                if (address.isReachable(2000)) {
+                    val elapsed = (System.currentTimeMillis() - startTime).toInt()
+                    updateServerStatus(server.id, pingMs = elapsed, isOnline = true)
+                    elapsed
+                } else {
+                    updateServerStatus(server.id, pingMs = -1, isOnline = false)
+                    -1
+                }
             } catch (_: Exception) {
-                val fallback = (35..95).random()
-                updateServerPing(server.id, fallback)
-                fallback
+                // Host resolution or connection failed completely: Server is OFFLINE
+                updateServerStatus(server.id, pingMs = -1, isOnline = false)
+                -1
             }
         }
     }
 
-    private fun updateServerPing(id: String, pingMs: Int) {
+    private fun updateServerStatus(id: String, pingMs: Int, isOnline: Boolean) {
         _servers.value = _servers.value.map {
-            if (it.id == id) it.copy(pingMs = pingMs) else it
+            if (it.id == id) it.copy(pingMs = pingMs, isOnline = isOnline) else it
         }
     }
 
@@ -252,30 +206,7 @@ class ServerRepository(context: Context) {
             }
 
             val body = response.body?.string() ?: return@withContext Result.failure(Exception("Empty response body"))
-            val jsonArray = JSONArray(body)
-            val fetchedServers = mutableListOf<VpnServer>()
-
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                fetchedServers.add(
-                    VpnServer(
-                        id = obj.getString("id"),
-                        name = obj.getString("name"),
-                        country = obj.getString("country"),
-                        countryCode = obj.optString("countryCode", "UN"),
-                        city = obj.getString("city"),
-                        endpointHost = obj.getString("endpointHost"),
-                        endpointPort = obj.getInt("endpointPort"),
-                        publicKey = obj.getString("publicKey"),
-                        presharedKey = obj.optString("presharedKey").takeIf { it.isNotBlank() },
-                        clientIp = obj.optString("clientIp", "10.66.66.2/32"),
-                        dnsServers = obj.optString("dnsServers", "1.1.1.1, 1.0.0.1"),
-                        pingMs = obj.optInt("pingMs", -1),
-                        loadPercent = obj.optInt("loadPercent", 25),
-                        isCustom = false
-                    )
-                )
-            }
+            val fetchedServers = parseServerListJson(body, isCustom = false)
 
             val customs = loadCustomServers()
             _servers.value = fetchedServers + customs
